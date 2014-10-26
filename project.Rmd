@@ -1,0 +1,169 @@
+---
+title: Project Assignment for *Practical Machine Learning*
+author: "A course in the *Johns Hopkins Coursera Data Science specialization*"
+date: "Author: fss14142"
+output: html_document
+---
+
+## Summary.
+
+This analysis corresponds to the Project Assignment for the *Practical Machine Learning* course of the *John Hopkins Data Science Specialization* at [Coursera](https://www.coursera.org/specialization/jhudatascience/1?utm_medium=listingPage). The project uses data from the Weight Lifting Exercises (WLE) Dataset (see [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) and also the *References* section below.) According to the WLE website, six participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions, identified as classes A, B, C, D and E.  Class A corresponds to a correct execution of the exercise, and the remaining five classes identify common mistakes in this weight lifting exercise. Several sensors were used to collect data about the quality of the exercise execution. The goal of this project is to obtain a prediction algorithm that takes such a set of sensor readings and correctly predicts the corresponding class (A to E).
+
+The following analysis uses a random forest prediction algorithm to accomplish this task, after some data cleaning. The results of the analysis confirm that the model provided by this algorithm achieves a high  prediction accuracy (as indicated by several prediction quality indicators).
+
+
+## Discussion and Code for the Analysis.
+
+
+### Data File Loading and Initial Data Exploration.
+
+The project assignment includes two data files (in csv format), that can be downloaded from these links:
+
+1) [Training data: pml-training.csv.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+2) [Testing data: pml-testing.csv.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The following code assumes that these data files are located in your R working directory. The ```pml-training.csv``` file contains *both* sensor data and execution type data, but the ```pml-testing.csv``` file *does not* contains execution type data. As part of the assignment, we have to use the prediction algorithm trained on the dat from the ```pml-testing.csv``` file, in order to predict the execution type for the data in the ```pml-testing.csv``` file.  
+
+In this assignment there is no codebook for the data files. However, relevant information can be obtained from the sources cited in the references. In particular, we know that four types of sensors were used in the experiment, and we will see below that this is reflected in the names of many of the variables in the data set.    
+
+Let us begin by reading the ```pml-training.csv``` file into R. a previous inspection of the data file (using e.g. a text editor or a spreadsheet program) shows that: 
+1. The data columns in the file are separated by commas.
+2. There are many missing values. These missing values come in two versions: the usual NA value, but also as values of the form "#DIV/0!" (this is probably the result of an attempt to divide by zero in a spreadsheet).
+3. The header line contains the names of the variables in the data set.
+4. The first column is not really a variable, it just contains the row number. 
+Taking all that into account, we read the csv into a data frame in R as follows:
+
+```{r}
+pml_training_data = read.table("data/pml-training.csv", 
+                               header = TRUE, sep = ",", 
+                               na.strings = c("NA", "#DIV/0!"))
+dim(pml_training_data)
+```
+As you can see, the data frame has `r dim(pml_training_data)[1]` rows (observations) and `r dim(pml_training_data)[2]` columns (variables). Most of the variables (152 out of 160) correspond to sensor readings for one of the four sensors. Those sensor-reading variable names (columns 8 to 159) include one of the following strings to identify the corresponding sensor:
+```
+_belt   _arm   _dumbbell   _forearm
+```
+The last column in the data frame (column 160) contains the values A to E of the ```classe``` variable that indicates the execution type of the exercise. 
+
+Finally, the first seven columns contain:
+ 
+ - column 1: the row index (not really a variable).
+ - column 2: the user_name variable; that is, the name of the person performing the exercise. 
+ - columns 3 to 7: variables related to the time window for that particular sensor reading. See Section 5.1 of the paper in the references for more details on these variables. 
+
+### Restricting the Variables to Sensor-related Ones. 
+
+Thus, the data in this seven columns are not sensor readings. For the prediction purposes of this analysis, we will remove the data in this columns from the data frame (using ```grep``` to select the desired columns). 
+```{r}
+  (predictorColumns = grep(pattern = "_belt|_arm|_dumbbell|_forearm", names(pml_training_data)))
+  length(predictorColumns)
+  data = pml_training_data[, c(predictorColumns,160)]
+  dim(data)
+```
+See the Notes section below for further discussion of this choice of variables.
+
+### Handling NA Values.
+
+The selected sensor data columns still include many variables whose values are NA for almost all obervations. To remove those variables we do the following: 
+```{r}
+missingData = is.na(data)
+
+omitColumns = which(colSums(missingData) > 19000)
+
+data = data[, -omitColumns]
+
+dim(data)
+```
+As you can see, only `r dim(data)[2]` predictor variables (plus ```classe```) remain in the data set. Next we check that the resulting data frame has no missing values with:
+
+```{r}
+table(complete.cases(data))
+```
+
+All of the remaining predictor variables are of numeric type:
+```{r}
+table(sapply(data[1,], class))
+```
+
+### Data Splitting and Discussion of Preprocessing.
+
+Following the usual practice in machine learning, we will split our data into a training data set (75% of the total cases) and a testing data set (with the remaining cases; the latter should not be confused with the data in the ```pml-testing.csv``` file). This will allow us to estimate the out of sample error of  our predictor. We will use the ```caret``` package for this purpose, and we begin by setting the seed to ensure reproducibility.
+
+```{r opts_chunk$set(comment=NA, fig.width=6, fig.height=6, cache=TRUE), echo=FALSE}
+set.seed(2014)
+library(caret)
+
+inTrain <- createDataPartition(y=data$classe, p=0.75, list=FALSE)
+
+training <- data[inTrain,]
+dim(training)
+
+testing <- data[-inTrain,]
+dim(testing)
+```
+Some remarks are in order, before proceeding to train our predictor:
+
+ - Since we are going to apply a non-parametric model (random forests), no preprocessing is needed to transform the variables. 
+ - The possible use of PCA to further reduce the number of features is discussed in the Notes section below. 
+ - Cross validation is not required for such a direct construction of random forests. See the discussion in [this thread](https://stat.ethz.ch/pipermail/r-help/2011-February/269412.html) of the R-help mailing list, and Section 8.2 of *An Introduction to Statistical Learning* (see References below).
+
+Thus, we are ready to continue building the predictor.
+
+### Training the Predictor.
+
+We will use the ```randomForest``` function (in the ```randomForest``` package) to fit the predictor to the training set. In the computer used for this analysis (see the Notes section below for details) the default number of trees (500) gives a reasonable tradeoff between training time and accuracy. In more powerful machines that number can be increased for (slightly) better predictions.
+
+```{r}
+library(randomForest)
+time1 = proc.time()
+(randForest = randomForest(classe~., data=training, ntree = 500))
+time2 = proc.time()
+time = time2 - time1
+```
+As the above results show, the resulting predictor has a quite low OOB (out-of-bag) error estimate.    
+
+### Applying the Model to the Testing Subsample.
+
+After training the predictor we use it on the testing subsample we constructed before, to get an estimate of its out of sample error. 
+
+```{r}
+predictionTesting = predict(randForest, newdata = testing)
+```
+
+The error estimate can be obtained with the ```confusionMatrix``` function of the caret package:
+
+```{r}
+confusionMatrix(predictionTesting, testing$classe)
+```
+Both the accuracy and the Cohen's kappa indicator of concordance indicate that the predictor seems to have a low out of sample error rate.
+
+
+### Notes. 
+
+1. The inclusion of the time-of-measure related variables (columns 3 to 7) can be considered. However, this only results in a small increase of prediction accuracy and the decission was made to exclude those variables to avoid a possible overfitting of the predictor to the training data. 
+
+2. Preprocessing with principal Components Analysis (PCA) could be used to reduce the number of variables in the predictor, in the hopes of increasing the performance of the predictor. However, keeping the original variables allows for the analysis of the relative variable importance. For example, we can use the ```varImplot``` function:
+```{r}
+varImpPlot(randForest)
+```
+While random forests are not easily interpretable predictors, the variable importance analysis offers at least some insight into the model. BUt were we to use PCA, even this would be obscured. Therefore, I decided to keep the predictor based in the original variables. Fine tuning of the model preformance based on that importance classification could be considered, if the model is to be implemented in a production setting.
+
+3. R version and System information for this analysis:
+
+```{r}
+Sys.info()[1:2]
+R.version.string
+```
+
+4. As an additional prediction test, the predictor constructed here was used for the Prediction part of this Assignment, and 20 out 20 cases were correctly predicted.
+
+
+## References.
+
+(1) [Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf)
+
+(2) Website for the Groupware@LES Human Activity Recognition project.
+
+(3) *An Introduction to Statistical Learning*, G. James, D. Witten, T. Hastie, R. Tibshirani. Ed. Springer Verlag (2013). ISBN: 978-1-4614-7138-7.
+
+(4) *The Elements of Statistical Learning (2nd. Edition, 10th  printing)*, T. Hastie, R. Tibshirani, J. Friedman. Ed. Springer Verlag (2009). ISBN: 978-0-3878-4857-0.
