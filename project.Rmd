@@ -2,7 +2,9 @@
 title: Project Assignment for *Practical Machine Learning*
 author: "A course in the *Johns Hopkins Coursera Data Science specialization*"
 date: "Author: fss14142"
-output: html_document
+output: 
+  html_document:
+  toc: true
 ---
 
 ## Summary.
@@ -22,18 +24,20 @@ The project assignment includes two data files (in csv format), that can be down
 1) [Training data: pml-training.csv.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
 2) [Testing data: pml-testing.csv.](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
 
-The following code assumes that these data files are located in your R working directory. The ```pml-training.csv``` file contains *both* sensor data and execution type data, but the ```pml-testing.csv``` file *does not* contains execution type data. As part of the assignment, we have to use the prediction algorithm trained on the dat from the ```pml-testing.csv``` file, in order to predict the execution type for the data in the ```pml-testing.csv``` file.  
+The following code assumes that these data files are located in your R working directory. The ```pml-training.csv``` file contains *both* sensor data and execution type data, but the ```pml-testing.csv``` file *does not* contain execution type data. As an additional part of the assignment, we have to use the prediction algorithm trained on the data from the ```pml-testing.csv``` file, in order to predict the execution type for the data in the ```pml-testing.csv``` file.  
 
 In this assignment there is no codebook for the data files. However, relevant information can be obtained from the sources cited in the references. In particular, we know that four types of sensors were used in the experiment, and we will see below that this is reflected in the names of many of the variables in the data set.    
 
-Let us begin by reading the ```pml-training.csv``` file into R. a previous inspection of the data file (using e.g. a text editor or a spreadsheet program) shows that: 
-1. The data columns in the file are separated by commas.
-2. There are many missing values. These missing values come in two versions: the usual NA value, but also as values of the form "#DIV/0!" (this is probably the result of an attempt to divide by zero in a spreadsheet).
-3. The header line contains the names of the variables in the data set.
-4. The first column is not really a variable, it just contains the row number. 
+Let us begin by reading the ```pml-training.csv``` file into R. An initial inspection of the data file (using e.g. a text editor or a spreadsheet program) shows that: 
+ 
+ 1. The data columns in the file are separated by commas.
+ 2. There are many missing values. These missing values come in two versions: the usual NA value, but also as values of the form "#DIV/0!" (this is probably the result of an attempt to divide by zero in a spreadsheet).
+ 3. The header line contains the names of the variables in the data set.
+ 4. The first column is not really a variable, it just contains the row number. 
+
 Taking all that into account, we read the csv into a data frame in R as follows:
 
-```{r}
+```{r  opts_chunk$set(comment=NA, fig.width=6, fig.height=6, cache=TRUE)}
 pml_training_data = read.table("data/pml-training.csv", 
                                header = TRUE, sep = ",", 
                                na.strings = c("NA", "#DIV/0!"))
@@ -53,11 +57,11 @@ Finally, the first seven columns contain:
 
 ### Restricting the Variables to Sensor-related Ones. 
 
-Thus, the data in this seven columns are not sensor readings. For the prediction purposes of this analysis, we will remove the data in this columns from the data frame (using ```grep``` to select the desired columns). 
+Thus, the data in the first seven columns are not sensor readings. For the prediction purposes of this analysis, we will remove the data in those columns from the data frame (using ```grep``` to select the sensor-related columns). 
 ```{r}
-  (predictorColumns = grep(pattern = "_belt|_arm|_dumbbell|_forearm", names(pml_training_data)))
-  length(predictorColumns)
-  data = pml_training_data[, c(predictorColumns,160)]
+  sensorColumns = grep(pattern = "_belt|_arm|_dumbbell|_forearm", names(pml_training_data))
+  length(sensorColumns)
+  data = pml_training_data[, c(sensorColumns,160)]
   dim(data)
 ```
 See the Notes section below for further discussion of this choice of variables.
@@ -87,9 +91,9 @@ table(sapply(data[1,], class))
 
 ### Data Splitting and Discussion of Preprocessing.
 
-Following the usual practice in machine learning, we will split our data into a training data set (75% of the total cases) and a testing data set (with the remaining cases; the latter should not be confused with the data in the ```pml-testing.csv``` file). This will allow us to estimate the out of sample error of  our predictor. We will use the ```caret``` package for this purpose, and we begin by setting the seed to ensure reproducibility.
+Following the usual practice in Machine Learning, we will split our data into a training data set (75% of the total cases) and a testing data set (with the remaining cases; the latter should not be confused with the data in the ```pml-testing.csv``` file). This will allow us to estimate the *out of sample* error of  our predictor. We will use the ```caret``` package for this purpose, and we begin by setting the seed to ensure reproducibility.
 
-```{r opts_chunk$set(comment=NA, fig.width=6, fig.height=6, cache=TRUE), echo=FALSE}
+```{r}
 set.seed(2014)
 library(caret)
 
@@ -105,7 +109,7 @@ Some remarks are in order, before proceeding to train our predictor:
 
  - Since we are going to apply a non-parametric model (random forests), no preprocessing is needed to transform the variables. 
  - The possible use of PCA to further reduce the number of features is discussed in the Notes section below. 
- - Cross validation is not required for such a direct construction of random forests. See the discussion in [this thread](https://stat.ethz.ch/pipermail/r-help/2011-February/269412.html) of the R-help mailing list, and Section 8.2 of *An Introduction to Statistical Learning* (see References below).
+ - Even though the assignment rubric mentions it, Cross Validation is *not necessary* for such a direct construction of random forests (in short, because the random forest construction already includes enough subsampling). See the discussion in [this thread](https://stat.ethz.ch/pipermail/r-help/2011-February/269412.html) of the R-help mailing list, and Section 8.2 of *An Introduction to Statistical Learning* (see References below).
 
 Thus, we are ready to continue building the predictor.
 
@@ -118,9 +122,9 @@ library(randomForest)
 time1 = proc.time()
 (randForest = randomForest(classe~., data=training, ntree = 500))
 time2 = proc.time()
-time = time2 - time1
+(time = time2 - time1)
 ```
-As the above results show, the resulting predictor has a quite low OOB (out-of-bag) error estimate.    
+As the above results show, the resulting predictor has a quite low OOB (out-of-bag) error estimate. The confusion matrix for the training set indicates that the predictor is accurate on that set.
 
 ### Applying the Model to the Testing Subsample.
 
@@ -146,7 +150,8 @@ Both the accuracy and the Cohen's kappa indicator of concordance indicate that t
 ```{r}
 varImpPlot(randForest)
 ```
-While random forests are not easily interpretable predictors, the variable importance analysis offers at least some insight into the model. BUt were we to use PCA, even this would be obscured. Therefore, I decided to keep the predictor based in the original variables. Fine tuning of the model preformance based on that importance classification could be considered, if the model is to be implemented in a production setting.
+
+While random forests are not easily interpretable predictors, the variable importance analysis offers at least some insight into the model. But if we were to use PCA, even this would be obscured. Therefore, I decided to keep the predictor based in the original variables. Fine tuning of the model performance based on that importance classification could be considered, if the model is to be implemented in a production setting.
 
 3. R version and System information for this analysis:
 
@@ -155,14 +160,14 @@ Sys.info()[1:2]
 R.version.string
 ```
 
-4. As an additional prediction test, the predictor constructed here was used for the Prediction part of this Assignment, and 20 out 20 cases were correctly predicted.
+4. As an additional prediction test, the predictor constructed here was used for the Prediction part of this Assignment, for the data in the ```pml-testing.csv``` file, and 20 out 20 cases were correctly predicted.
 
 
 ## References.
 
 (1) [Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf)
 
-(2) Website for the Groupware@LES Human Activity Recognition project.
+(2) [Website for the Groupware\@LES Human Activity Recognition project.](http://http://groupware.les.inf.puc-rio.br/har)
 
 (3) *An Introduction to Statistical Learning*, G. James, D. Witten, T. Hastie, R. Tibshirani. Ed. Springer Verlag (2013). ISBN: 978-1-4614-7138-7.
 
